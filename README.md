@@ -1,66 +1,71 @@
-# Mais Capinhas — People Analytics (KPIs via Vídeo)
+# Mais Capinhas - People Analytics (KPIs via Video)
 
-Projeto para gerar KPIs de fluxo a partir de vídeos brutos das lojas Mais Capinhas.  
-O pipeline é offline, multi-loja/multi-câmera, com fila de jobs no banco e saída em JSON/KPIs.
+Projeto para gerar KPIs de fluxo a partir de videos brutos das lojas Mais Capinhas.
+Pipeline offline, multi-loja/multi-camera, com fila de jobs no banco e saida em JSON/KPIs.
 
-## O que já está pronto
+## Objetivo
 
-- Estrutura multi-loja/multi-câmera baseada em pastas (não depende do nome do arquivo).
-- Ingest de vídeos com dedup e criação de `video_segments`.
+- Transformar video em eventos de entrada/saida por camera e por loja.
+- Consolidar KPIs por hora e por turno para uso em dashboard.
+- Manter arquitetura pronta para atributos (sexo/idade), reid e recorrencia no futuro.
+
+## Status atual (MVP pronto para operar)
+
+- Estrutura de pastas por store/camera/date (nao depende do nome do arquivo).
+- Ingest com dedup e criacao de `video_segments`.
 - Fila de jobs no banco (sem Redis) com `SELECT ... FOR UPDATE SKIP LOCKED`.
-- Worker para processar segmentos e disparar rebuild de KPIs.
-- Pipeline de visão modular com YOLO (detecção), ByteTrack (tracking) e contagem por linha.
-- JSON de saída por vídeo com eventos IN/OUT e métricas básicas.
-- KPIs por hora e por turno (hourly/shift) com rebuild.
-- API FastAPI (health, stores, segments, kpis).
-- Scripts de serviço (systemd) prontos para Linux.
+- Worker para `PROCESS_SEGMENT` e `KPI_REBUILD`.
+- Pipeline modular: detect -> track -> line count -> staff exclusion (stub).
+- Saida JSON por segmento, JSONL e merge JSON para dashboard.
+- FastAPI basica (health, stores, segments, kpis).
+- Script de split via ffmpeg e comando `split-process`.
 
-## O que falta fazer (roadmap)
+## Analise do workflow atual (fluxo completo)
 
-- Exclusão de funcionários (staff) por face embeddings ou por zona/turno.
-- Amostragem de presença (occupancy/proxy de movimento).
-- Atributos (sexo/idade) com flags LGPD.
-- Re-identificação e recorrência.
-- Segmentação automática de vídeos longos (quando DVR/NVR não segmenta).
-- Otimizações de performance (batch, GPU, amostragem adaptativa).
-- Painel/relatórios e alertas operacionais.
+1) Videos entram no padrao de pastas `store=.../camera=.../date=.../HH-MM-SS__HH-MM-SS.ext`.
+2) `ingest` varre o `video_root`, cria `video_segments` e enfileira `PROCESS_SEGMENT`.
+3) Worker faz claim do job, processa o segmento e grava eventos em `people_flow_events`.
+4) Worker cria job `KPI_REBUILD` para a data do segmento.
+5) KPI rebuild consolida dados em `kpi_hourly` e `kpi_shift`.
+6) Para uso rapido, `process` e `split-process` geram JSON/JSONL para dashboard.
 
-## Tecnologias principais
+## Arquitetura e componentes
 
-- Python 3.10+
-- Pydantic / Pydantic Settings
-- SQLAlchemy + Alembic
-- FastAPI + Uvicorn
-- Typer (CLI)
-- OpenCV (leitura de vídeo)
-- Ultralytics YOLO (detecção)
-- Supervision ByteTrack (tracking)
+- `apps/cli.py`: comandos de ingest, process, split-process, merge-jsonl e init-db.
+- `apps/worker/worker.py`: loop de jobs no banco (claim + retry).
+- `apps/api/`: API FastAPI para painel/admin.
+- `src/people_analytics/vision/`: pipeline de visao computacional.
+- `src/people_analytics/db/`: modelos, CRUD e sessao SQLAlchemy.
+- `config/`: stores, cameras e shifts.
 
-## Estrutura do repositório
+## Estrutura do repositorio
 
 ```
 apps/
-  cli.py                 CLI (ingest, process, kpi-rebuild, staff-rebuild)
+  cli.py                 CLI (ingest, process, split-process, merge-jsonl)
   api/                   FastAPI (health, stores, segments, kpis)
   worker/                worker que consome jobs do DB
 
 src/people_analytics/
-  core/                  settings, config, time utils
+  core/                  settings, config, logging, time utils
   storage/               parser de path, scanner, fingerprint
   db/                    models, crud, session
   vision/                pipeline + stages (detect, track, count, staff)
   kpi/                   aggregators e rebuild
 
 config/                  stores, cameras, shifts
-var/                     logs, cache, debug_frames, videos
-scripts/                 serviços systemd (Linux)
-tests/                   testes unitários
+scripts/                 split_video.ps1, systemd samples
+var/                     logs, cache, debug_frames, videos, outputs
+tests/                   testes unitarios
+front.md                 contrato JSON para o front-end
 ```
 
-## Estrutura obrigatória dos vídeos
+## Organizacao obrigatoria dos videos
+
+Nao dependa do nome do arquivo. Dependa da estrutura de pastas:
 
 ```
-/var/people_analytics/videos/
+var/people_analytics/videos/
   store=001/
     camera=entrance/
       date=2025-12-31/
@@ -68,36 +73,68 @@ tests/                   testes unitários
         14-00-00__14-10-00.mp4
 ```
 
-Extensões suportadas: `.mp4`, `.mkv`, `.avi`, `.dav`.
+Extensoes suportadas: `.mp4`, `.mkv`, `.avi`, `.dav`.
 
-## Configuração
+## Configuracao
 
 Arquivos principais:
 
 - `config/stores.yml` (lojas, timezone, video_root)
 - `config/shifts.yml` (turnos)
-- `config/cameras/store_001_entrance.yml` (linha, ROI, resize, detecção, tracking)
+- `config/cameras/store_001_entrance.yml` (linha, ROI, resize, detecao, tracking)
 
-Parâmetros importantes por câmera:
+Parametros de camera mais importantes:
 
 - `line.start` / `line.end`, `line.min_interval_s`, `direction`
 - `roi` e `resize` (coordenadas no frame redimensionado)
 - `processing.yolo_model`, `conf`, `iou`, `person_class_id`
-- `processing.crop_roi` (true para cortar a ROI antes da detecção)
+- `processing.crop_roi` (true para cortar a ROI antes da detecao)
 - `tracking.track_thresh`, `tracking.match_thresh`, `tracking.track_buffer`
 
 Se IN/OUT estiver invertido, troque `line.start`/`line.end` ou altere `direction`.
 
-## Pipeline (fluxo completo)
+## Variaveis de ambiente (.env)
 
-1) `ingest` escaneia os vídeos e cria `video_segments`.
-2) Cada segmento vira um job `PROCESS_SEGMENT`.
-3) Worker processa o vídeo: detecção → tracking → contagem por linha.
-4) Eventos são gravados em `people_flow_events`.
-5) Worker cria job `KPI_REBUILD` para o dia do segmento.
-6) KPIs são consolidados em `kpi_hourly` e `kpi_shift`.
+Use `.env.example` como base. Principais variaveis:
 
-## Saída JSON (processamento por vídeo)
+| Variavel | Default | Descricao |
+| --- | --- | --- |
+| `DATABASE_URL` | `sqlite:///./var/people_analytics.db` | Banco local para dev |
+| `VIDEO_ROOT` | `./var/people_analytics/videos` | Raiz dos videos |
+| `CONFIG_DIR` | `./config` | Pasta de configs |
+| `TIMEZONE` | `America/Sao_Paulo` | Timezone base |
+| `JOB_POLL_INTERVAL` | `5` | Intervalo do worker (s) |
+| `JOB_LOCK_TIMEOUT` | `300` | Timeout de lock (s) |
+
+## Banco de dados (tabelas MVP)
+
+- `stores`, `cameras`
+- `video_segments` (1 arquivo = 1 segmento)
+- `jobs` (fila no DB, sem Redis)
+- `people_flow_events` (IN/OUT, staff flag)
+- `metrics_presence` (amostragem de ocupacao, ainda vazio)
+- `kpi_hourly`, `kpi_shift`
+- `staff` (stub para exclusao)
+
+## Fila de jobs no banco
+
+- Claim com `SELECT ... FOR UPDATE SKIP LOCKED`.
+- Lock timeout com requeue de jobs travados.
+- Status: queued -> processing -> done/failed.
+- Escala com varios workers em paralelo.
+
+## Pipeline de visao (stages)
+
+1) Detect (YOLO) -> detecta pessoas
+2) Track (ByteTrack) -> IDs temporarios
+3) Line count -> gera eventos IN/OUT
+4) Staff exclusion -> hook para excluir funcionarios (stub)
+
+Observacao: o `crop_roi` corta a ROI antes da deteccao e acelera muito em CPU.
+
+## Saida de dados
+
+### JSON por segmento (stdout ou JSONL)
 
 ```
 {
@@ -124,7 +161,33 @@ Se IN/OUT estiver invertido, troque `line.start`/`line.end` ou altere `direction
 }
 ```
 
-## Como rodar local (Windows)
+### JSON merge (dashboard)
+
+Use `merge-jsonl` para gerar um arquivo unico com `totals` + `segments`.
+Veja `front.md` para o contrato completo do JSON.
+
+## Comandos CLI (principais)
+
+```
+python -m apps.cli init-db
+python -m apps.cli ingest
+python -m apps.cli process --path <video_file>
+python -m apps.cli split-process --input-path <video> --store-code 001 --camera-code entrance --date 2025-12-31
+python -m apps.cli merge-jsonl --input-path var/outputs/out.jsonl --output-path var/outputs/out.json
+python -m apps.cli kpi-rebuild <date> <store_id> [camera_id]
+python -m apps.worker.worker
+```
+
+Atalho via Makefile:
+
+```
+make init-db
+make ingest
+make worker
+make api
+```
+
+## Setup local (Windows)
 
 ```
 python -m venv .venv
@@ -133,54 +196,33 @@ python -m pip install -e .
 python -m pip install -e .[vision]
 copy .env.example .env
 python -m apps.cli init-db
+```
+
+Depois:
+
+```
 python -m apps.cli ingest
 python -m apps.worker.worker
 uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Teste rápido com um vídeo
+## Workflow rapido com um video unico
 
-1) Copie o arquivo para a estrutura esperada:
+1) Copie o video para a estrutura esperada:
 
 ```
 var/people_analytics/videos/store=001/camera=entrance/date=2025-12-31/10-00-00__10-30-00.dav
 ```
 
-2) Rode o processamento com tempo limitado:
+2) Rode o processamento:
 
 ```
 python -m apps.cli process --path <video_file> --max-seconds 120
 ```
 
-## Otimização para vídeos longos (ex: .dav)
+## Split + processamento paralelo (videos longos)
 
-Para reduzir tempo de processamento, recomenda-se converter e fracionar o vídeo em segmentos menores.  
-Isso diminui o custo de decodificação e permite paralelizar o worker.
-
-Script pronto (Windows) com ffmpeg:
-
-```
-.\scripts\split_video.ps1 `
-  -Input "C:\Users\Anderson\Desktop\MaisCapinhas\tabuleiro.dav" `
-  -OutputDir "C:\Users\Anderson\Desktop\MaisCapinhas\var\people_analytics\videos\store=001\camera=entrance\date=2025-12-31" `
-  -BaseTime "10:00:00" `
-  -SegmentMinutes 5 `
-  -Fps 8 `
-  -Scale "640:-2"
-```
-
-Depois do split:
-
-```
-python -m apps.cli ingest
-python -m apps.worker.worker
-```
-
-Dica: ajuste `Fps` e `Scale` para equilibrar qualidade e velocidade, e mantenha `roi/line` no mesmo tamanho do frame redimensionado.
-
-## Workflow integrado (split + contagem + JSON)
-
-Para transformar, fracionar e já gerar JSONL em um único comando:
+Comando integrado (split + contagem + JSONL):
 
 ```
 python -m apps.cli split-process ^
@@ -196,28 +238,68 @@ python -m apps.cli split-process ^
   --output-json var/outputs/001_entrance_2025-12-31.jsonl
 ```
 
-O arquivo `.jsonl` salva um JSON por segmento (mais leve e fácil de manipular).
+Script PowerShell (ffmpeg) pronto:
 
-## Performance (o que mais impacta)
+```
+.\scripts\split_video.ps1 `
+  -Input "C:\Users\Anderson\Desktop\MaisCapinhas\tabuleiro.dav" `
+  -OutputDir "C:\Users\Anderson\Desktop\MaisCapinhas\var\people_analytics\videos\store=001\camera=entrance\date=2025-12-31" `
+  -BaseTime "10:00:00" `
+  -SegmentMinutes 5 `
+  -Fps 6 `
+  -Scale "480:-2"
+```
 
-1) **Segmentar** (5–10 min) e **paralelizar** (mais de um worker).
-2) **Reducao de FPS** (4–8) e **resolucao** (ex.: 640px largura).
-3) **ROI menor** e **linha bem posicionada** para evitar contagens falsas.
-4) **crop_roi** habilitado quando a ROI for pequena (reduz custo de inferencia).
-5) **YOLOv8n** (modelo menor) para CPU; GPU acelera bastante se disponivel.
-6) Evitar reprocessar: use `ingest` + jobs para cache no banco.
+## Performance (principais alavancas)
 
-## Observações importantes
+1) Segmentar (5-10 min) e paralelizar (2-3 workers).
+2) Reduzir FPS (4-8) e resolucao (ex: 480px largura).
+3) ROI menor e linha bem posicionada para reduzir falso positivo.
+4) `crop_roi` ligado quando a ROI for pequena.
+5) YOLOv8n para CPU; GPU acelera muito se disponivel.
+6) Evitar reprocesso: use `ingest` + jobs para cache no banco.
 
-- Postgres é recomendado para múltiplos workers.
-- SQLite funciona para dev/local.
-- Em Windows, `tzdata` é obrigatório para timezone.
-- Staff exclusion por face precisa de câmera frontal; se não tiver, use fallback por zona/turno.
+## O que precisa melhorar (gaps tecnicos)
 
-## Próximos passos sugeridos
+- Staff exclusion real (face embeddings, zona/turno ou uniforme).
+- Presence sampling (occupancy) para proxy de movimento.
+- Segmentacao automatica de videos longos (DVR/NVR).
+- Atributos (sexo/idade) com flags LGPD.
+- Reid e recorrencia (visitantes repetidos).
+- Mais testes (pipeline, tracking, contagem, jobs).
+- Observabilidade (logs estruturados, metrics, alertas).
 
-1) Ajustar linha/ROI por câmera até os IN/OUT ficarem corretos.
-2) Implementar exclusão de funcionários por zona/escala.
-3) Criar segmentador para vídeos longos (DVR/NVR).
-4) Ativar presença/ocupação e KPIs avançados.
-5) Conectar painel admin e exportações.
+## Proximos passos recomendados (prioridade)
+
+1) Ajustar ROI/linha por camera ate IN/OUT ficar estavel.
+2) Implementar staff exclusion por zona/turno (fallback sem face).
+3) Ativar presence sampling e KPI de ocupacao.
+4) Consolidar KPIs diarios e exportacao para o dashboard.
+5) Opcional: GPU e batch para ganhar throughput.
+
+## Checklist de documentacao (README)
+
+- [ ] Objetivo e escopo atual
+- [ ] Status do MVP (o que ja funciona)
+- [ ] Workflow completo (passo a passo)
+- [ ] Estrutura do repositorio e pastas
+- [ ] Padrao de videos e configuracao
+- [ ] Comandos CLI e setup local
+- [ ] Saida JSON e contrato do front
+- [ ] Performance e boas praticas
+- [ ] Gaps tecnicos e proximos passos
+
+## Pesquisa em partes (fontes internas)
+
+1) CLI e workflow: `apps/cli.py`
+2) Worker e jobs: `apps/worker/worker.py`, `src/people_analytics/db/crud/jobs.py`
+3) Pipeline e stages: `src/people_analytics/vision/*`
+4) Configs e paths: `config/*`, `src/people_analytics/storage/*`
+5) Banco e modelos: `src/people_analytics/db/models/*`
+6) Output JSON: `front.md`
+
+## Observacoes importantes
+
+- Evite commitar videos no Git (use `var/` ou Git LFS).
+- `tzdata` e necessario no Windows para timezone.
+- Staff por face falha se a camera nao captura rosto frontal.

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Env files
+.env
+.env.*
+
+# Local data
+var/people_analytics/videos/
+var/outputs/
+var/cache/
+var/logs/
+var/debug_frames/
+var/*.db
+var/*.sqlite
+
+# Models
+*.pt
+
+# Video formats
+*.dav
+*.mp4
+*.mkv
+*.avi

@@ -306,7 +306,7 @@ def merge_jsonl(
 
     with Path(input_path).open("r", encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
+            line = line.lstrip("\ufeff").strip()
             if not line:
                 continue
             segment = json.loads(line)

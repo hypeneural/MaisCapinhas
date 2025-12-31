@@ -28,6 +28,11 @@ class FaceCaptureConfig:
     min_overlap: float = 0.3
     max_faces_per_frame: int = 5
     class_id: int = 0
+    haar_min_neighbors: int = 3
+    haar_scale_factor: float = 1.1
+    dnn_prototxt: str = "models/deploy.prototxt"
+    dnn_model: str = "models/res10_300x300_ssd_iter_140000_fp16.caffemodel"
+    dnn_conf: float = 0.5
     output_root: str | None = None
 
 
@@ -41,6 +46,7 @@ class ExtractFacesStage:
         self.last_saved_by_track: dict[str, float] = {}
         self.detector = "yolo"
         self.haar_detectors: list = []
+        self.dnn_net = None
 
     def setup(self, context: dict) -> None:
         context["result"].face_captures = []
@@ -58,6 +64,11 @@ class ExtractFacesStage:
         self.cfg.min_overlap = float(face_cfg.get("min_overlap", self.cfg.min_overlap))
         self.cfg.max_faces_per_frame = int(face_cfg.get("max_faces_per_frame", self.cfg.max_faces_per_frame))
         self.cfg.class_id = int(face_cfg.get("class_id", self.cfg.class_id))
+        self.cfg.haar_min_neighbors = int(face_cfg.get("haar_min_neighbors", self.cfg.haar_min_neighbors))
+        self.cfg.haar_scale_factor = float(face_cfg.get("haar_scale_factor", self.cfg.haar_scale_factor))
+        self.cfg.dnn_prototxt = str(face_cfg.get("dnn_prototxt", self.cfg.dnn_prototxt))
+        self.cfg.dnn_model = str(face_cfg.get("dnn_model", self.cfg.dnn_model))
+        self.cfg.dnn_conf = float(face_cfg.get("dnn_conf", self.cfg.dnn_conf))
         self.cfg.output_root = face_cfg.get("output_root")
 
         if not self.cfg.enabled:
@@ -90,6 +101,13 @@ class ExtractFacesStage:
                 context["result"].errors.append("face-model-load-failed")
 
         if self.model is None and cv2 is not None:
+            self.dnn_net = self._load_dnn_detector()
+            if self.dnn_net is not None:
+                self.detector = "dnn"
+                context["result"].errors.append("face-detector-fallback-dnn")
+                self.disabled_reason = None
+
+        if self.model is None and cv2 is not None and self.dnn_net is None:
             self.haar_detectors = self._load_haar_detectors()
             if self.haar_detectors:
                 self.detector = "haar"
@@ -123,6 +141,18 @@ class ExtractFacesStage:
             if not cascade.empty():
                 detectors.append(cascade)
         return detectors
+
+    def _load_dnn_detector(self):
+        if cv2 is None:
+            return None
+        proto = Path(self.cfg.dnn_prototxt)
+        model = Path(self.cfg.dnn_model)
+        if not proto.exists() or not model.exists():
+            return None
+        try:
+            return cv2.dnn.readNetFromCaffe(str(proto), str(model))
+        except Exception:
+            return None
 
     def _crop_to_roi(self, frame, roi: dict):
         x0 = int(roi.get("x", 0))
@@ -257,14 +287,38 @@ class ExtractFacesStage:
                         "score": float(conf[i]),
                     }
                 )
+        elif self.detector == "dnn" and self.dnn_net is not None:
+            h, w = infer_frame.shape[:2]
+            blob = cv2.dnn.blobFromImage(
+                infer_frame,
+                1.0,
+                (300, 300),
+                (104.0, 117.0, 123.0),
+                False,
+                False,
+            )
+            self.dnn_net.setInput(blob)
+            output = self.dnn_net.forward()
+            for i in range(output.shape[2]):
+                score = float(output[0, 0, i, 2])
+                if score < self.cfg.dnn_conf:
+                    continue
+                box = output[0, 0, i, 3:7] * [w, h, w, h]
+                x1, y1, x2, y2 = [float(v) for v in box]
+                detections.append(
+                    {
+                        "bbox": [x1, y1, x2, y2],
+                        "score": score,
+                    }
+                )
         elif self.detector == "haar" and self.haar_detectors:
             gray = cv2.cvtColor(infer_frame, cv2.COLOR_BGR2GRAY)
             min_size = (self.cfg.min_width, self.cfg.min_width)
             for detector in self.haar_detectors:
                 faces = detector.detectMultiScale(
                     gray,
-                    scaleFactor=1.1,
-                    minNeighbors=4,
+                    scaleFactor=self.cfg.haar_scale_factor,
+                    minNeighbors=self.cfg.haar_min_neighbors,
                     minSize=min_size,
                 )
                 for (x, y, w, h) in faces:

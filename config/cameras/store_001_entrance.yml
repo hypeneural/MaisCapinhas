@@ -34,10 +34,12 @@ face_capture:
   enabled: true
   model: yolov8n-face.pt
   conf: 0.85
-  min_width: 80
+  min_width: 40
   min_interval_s: 2.0
   save_on_crossing: true
   crop_roi: true
   padding: 0.2
   min_overlap: 0.3
   max_faces_per_frame: 5
+  haar_min_neighbors: 3
+  haar_scale_factor: 1.1

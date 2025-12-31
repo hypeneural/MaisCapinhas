@@ -151,6 +151,59 @@ var/people_analytics/videos/store=001/camera=entrance/date=2025-12-31/10-00-00__
 python -m apps.cli process --path <video_file> --max-seconds 120
 ```
 
+## Otimização para vídeos longos (ex: .dav)
+
+Para reduzir tempo de processamento, recomenda-se converter e fracionar o vídeo em segmentos menores.  
+Isso diminui o custo de decodificação e permite paralelizar o worker.
+
+Script pronto (Windows) com ffmpeg:
+
+```
+.\scripts\split_video.ps1 `
+  -Input "C:\Users\Anderson\Desktop\MaisCapinhas\tabuleiro.dav" `
+  -OutputDir "C:\Users\Anderson\Desktop\MaisCapinhas\var\people_analytics\videos\store=001\camera=entrance\date=2025-12-31" `
+  -BaseTime "10:00:00" `
+  -SegmentMinutes 5 `
+  -Fps 8 `
+  -Scale "640:-2"
+```
+
+Depois do split:
+
+```
+python -m apps.cli ingest
+python -m apps.worker.worker
+```
+
+Dica: ajuste `Fps` e `Scale` para equilibrar qualidade e velocidade, e mantenha `roi/line` no mesmo tamanho do frame redimensionado.
+
+## Workflow integrado (split + contagem + JSON)
+
+Para transformar, fracionar e já gerar JSONL em um único comando:
+
+```
+python -m apps.cli split-process ^
+  --input-path "C:\Users\Anderson\Desktop\MaisCapinhas\tabuleiro.dav" ^
+  --store-code 001 ^
+  --camera-code entrance ^
+  --date 2025-12-31 ^
+  --base-time 10:00:00 ^
+  --segment-minutes 5 ^
+  --fps 8 ^
+  --scale 640:-2 ^
+  --output-json var/outputs/001_entrance_2025-12-31.jsonl
+```
+
+O arquivo `.jsonl` salva um JSON por segmento (mais leve e fácil de manipular).
+
+## Performance (o que mais impacta)
+
+1) **Segmentar** (5–10 min) e **paralelizar** (mais de um worker).
+2) **Reducao de FPS** (4–8) e **resolucao** (ex.: 640px largura).
+3) **ROI menor** e **linha bem posicionada** para evitar contagens falsas.
+4) **YOLOv8n** (modelo menor) para CPU; GPU acelera bastante se disponivel.
+5) Evitar reprocessar: use `ingest` + jobs para cache no banco.
+
 ## Observações importantes
 
 - Postgres é recomendado para múltiplos workers.

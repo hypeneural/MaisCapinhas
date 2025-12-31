@@ -36,11 +36,12 @@ class DetectPeopleStage:
         self.iou = float(processing.get("iou", 0.45))
         self.person_class_id = int(processing.get("person_class_id", 0))
 
-        try:
-            self.model = YOLO(model_path)
-        except Exception as exc:
-            self.disabled_reason = f"yolo-load-failed:{exc}"
-            context["result"].errors.append("yolo-load-failed")
+        if self.model is None:
+            try:
+                self.model = YOLO(model_path)
+            except Exception as exc:
+                self.disabled_reason = f"yolo-load-failed:{exc}"
+                context["result"].errors.append("yolo-load-failed")
 
     def _resize_frame(self, frame) -> Any:
         resize_cfg = self.camera_cfg.get("resize")

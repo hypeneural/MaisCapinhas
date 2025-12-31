@@ -50,6 +50,20 @@ Este documento explica o formato do JSON gerado pelo pipeline de video para cons
           "confidence": 0.81
         }
       ],
+      "face_captures": [
+        {
+          "ts": "2025-12-31 10:01:13.375000-03:00",
+          "track_id": "1",
+          "store_code": "001",
+          "camera_code": "entrance",
+          "segment_date": "2025-12-31",
+          "segment_start": "10-00-00",
+          "source": "crossing",
+          "face_score": 0.91,
+          "face_bbox": [100.0, 120.0, 180.0, 220.0],
+          "path": "store=001/camera=entrance/date=2025-12-31/store=001__camera=entrance__date=2025-12-31__seg=10-00-00__ts=2025-12-31T10-01-13-375-0300__track=1__score=0.91.jpg"
+        }
+      ],
       "presence_samples": [],
       "meta": {
         "frames_read": 2500,
@@ -96,6 +110,19 @@ Eventos brutos (opcional para dashboards detalhados):
 - `direction` (string): "IN" ou "OUT"
 - `track_id` (string): id do tracker (nao e pessoa real, apenas identificador temporario)
 - `confidence` (float): confianca da deteccao
+
+#### segments[].face_captures
+Capturas de face salvas em disco:
+- `ts` (string, ISO-8601 com timezone)
+- `track_id` (string): id do tracker associado
+- `store_code` (string)
+- `camera_code` (string)
+- `segment_date` (string, YYYY-MM-DD)
+- `segment_start` (string, HH-MM-SS)
+- `source` (string): "crossing" ou "interval"
+- `face_score` (float)
+- `face_bbox` (lista [x1, y1, x2, y2] no frame redimensionado)
+- `path` (string): caminho relativo dentro de `FACES_ROOT`
 
 #### segments[].presence_samples
 Lista para amostragem de ocupacao (ainda vazio no MVP):

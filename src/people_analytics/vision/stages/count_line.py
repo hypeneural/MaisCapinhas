@@ -47,6 +47,7 @@ class CountLineStage:
         if not self.enabled:
             return
 
+        context["crossed_tracks"] = []
         tracks = context.get("tracks", [])
         ts = context.get("ts")
         base_ts = context.get("base_ts")
@@ -88,6 +89,13 @@ class CountLineStage:
                         "direction": direction,
                         "track_id": track_id,
                         "confidence": track.get("confidence"),
+                    }
+                )
+                context["crossed_tracks"].append(
+                    {
+                        "track_id": track_id,
+                        "direction": direction,
+                        "ts": float(ts),
                     }
                 )
                 self.last_cross_ts[track_id] = float(ts)

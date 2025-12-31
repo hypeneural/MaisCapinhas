@@ -27,10 +27,11 @@ def process_segment_job(session, job: Job) -> None:
     camera = segments_crud.get_camera(session, segment.camera_id)
 
     camera_cfg = load_camera_config(settings.config_dir, store.code, camera.camera_code)
-    pipeline = build_pipeline(camera_cfg)
+    pipeline = build_pipeline(camera_cfg, faces_root=settings.faces_root)
 
     video_path = Path(settings.video_root) / segment.path
-    result = pipeline.run(video_path, base_ts=segment.start_time)
+    info = segment.to_path_info(store.code, camera.camera_code, settings.timezone)
+    result = pipeline.run(video_path, base_ts=segment.start_time, segment_info=info)
 
     events_crud.replace_events_for_segment(session, segment.id, store.id, camera.id, result)
 

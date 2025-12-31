@@ -34,9 +34,15 @@ app = typer.Typer(help="People analytics CLI")
 _WORKER_CONTEXT: dict = {}
 
 
-def _init_worker(config_dir: str, store_code: str, camera_code: str, tz_name: str) -> None:
+def _init_worker(
+    config_dir: str,
+    store_code: str,
+    camera_code: str,
+    tz_name: str,
+    faces_root: str | None,
+) -> None:
     camera_cfg = load_camera_config(config_dir, store_code, camera_code)
-    _WORKER_CONTEXT["pipeline"] = build_pipeline(camera_cfg)
+    _WORKER_CONTEXT["pipeline"] = build_pipeline(camera_cfg, faces_root=faces_root)
     _WORKER_CONTEXT["tz_name"] = tz_name
     _WORKER_CONTEXT["video_root"] = None
 
@@ -46,7 +52,7 @@ def _process_segment_worker(segment_path: str, video_root: str, max_seconds: flo
     tz_name = _WORKER_CONTEXT["tz_name"]
     info = parse_video_path(Path(segment_path), Path(video_root))
     base_ts = combine_date_time(info.date, info.start_time, tz_name)
-    result = pipeline.run(Path(segment_path), base_ts=base_ts, max_seconds=max_seconds)
+    result = pipeline.run(Path(segment_path), base_ts=base_ts, max_seconds=max_seconds, segment_info=info)
     return result.to_output(info, tz_name)
 
 
@@ -160,9 +166,14 @@ def process(
         video_path = Path(path)
         info = parse_video_path(video_path, Path(settings.video_root))
         camera_cfg = load_camera_config(settings.config_dir, info.store_code, info.camera_code)
-        pipeline = build_pipeline(camera_cfg)
+        pipeline = build_pipeline(camera_cfg, faces_root=settings.faces_root)
         base_ts = combine_date_time(info.date, info.start_time, settings.timezone)
-        result = pipeline.run(video_path, base_ts=base_ts, max_seconds=max_seconds)
+        result = pipeline.run(
+            video_path,
+            base_ts=base_ts,
+            max_seconds=max_seconds,
+            segment_info=info,
+        )
         output = result.to_output(info, settings.timezone)
     else:
         with get_session() as session:
@@ -172,12 +183,18 @@ def process(
             store = segments_crud.get_store(session, segment.store_id)
             camera = segments_crud.get_camera(session, segment.camera_id)
             camera_cfg = load_camera_config(settings.config_dir, store.code, camera.camera_code)
-            pipeline = build_pipeline(camera_cfg)
+            pipeline = build_pipeline(camera_cfg, faces_root=settings.faces_root)
             video_path = Path(settings.video_root) / segment.path
-            result = pipeline.run(video_path, base_ts=segment.start_time, max_seconds=max_seconds)
+            info = segment.to_path_info(store.code, camera.camera_code, settings.timezone)
+            result = pipeline.run(
+                video_path,
+                base_ts=segment.start_time,
+                max_seconds=max_seconds,
+                segment_info=info,
+            )
             events_crud.replace_events_for_segment(session, segment.id, store.id, camera.id, result)
             output = result.to_output(
-                segment.to_path_info(store.code, camera.camera_code, settings.timezone),
+                info,
                 settings.timezone,
             )
 
@@ -229,12 +246,17 @@ def split_process(
     with output_path.open("w", encoding="utf-8") as f:
         if workers <= 1:
             camera_cfg = load_camera_config(config_dir, store_code, camera_code)
-            pipeline = build_pipeline(camera_cfg)
+            pipeline = build_pipeline(camera_cfg, faces_root=settings.faces_root)
             def _iter_outputs():
                 for segment_path in segments:
                     info = parse_video_path(segment_path, Path(video_root))
                     base_ts = combine_date_time(info.date, info.start_time, settings.timezone)
-                    result = pipeline.run(segment_path, base_ts=base_ts, max_seconds=max_seconds)
+                    result = pipeline.run(
+                        segment_path,
+                        base_ts=base_ts,
+                        max_seconds=max_seconds,
+                        segment_info=info,
+                    )
                     yield result.to_output(info, settings.timezone)
 
             for output in _iter_outputs():
@@ -246,7 +268,7 @@ def split_process(
             with ProcessPoolExecutor(
                 max_workers=workers,
                 initializer=_init_worker,
-                initargs=(config_dir, store_code, camera_code, settings.timezone),
+                initargs=(config_dir, store_code, camera_code, settings.timezone, settings.faces_root),
             ) as executor:
                 for output in executor.map(
                     _process_segment_worker,

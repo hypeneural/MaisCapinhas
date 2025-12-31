@@ -12,6 +12,7 @@ venv/
 
 # Local data
 var/people_analytics/videos/
+var/people_analytics/faces/
 var/outputs/
 var/cache/
 var/logs/

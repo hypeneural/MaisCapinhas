@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     database_url: str = "sqlite:///./var/people_analytics.db"
     video_root: str = "./var/people_analytics/videos"
+    faces_root: str = "./var/people_analytics/faces"
     config_dir: str = "./config"
     timezone: str = "America/Sao_Paulo"
     log_level: str = "INFO"
@@ -32,5 +33,6 @@ def get_settings() -> Settings:
     settings = Settings()
     settings.worker_id = settings.resolved_worker_id()
     settings.video_root = str(Path(settings.video_root))
+    settings.faces_root = str(Path(settings.faces_root))
     settings.config_dir = str(Path(settings.config_dir))
     return settings

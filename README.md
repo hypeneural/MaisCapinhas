@@ -15,8 +15,8 @@ Pipeline offline, multi-loja/multi-camera, com fila de jobs no banco e saida em 
 - Ingest com dedup e criacao de `video_segments`.
 - Fila de jobs no banco (sem Redis) com `SELECT ... FOR UPDATE SKIP LOCKED`.
 - Worker para `PROCESS_SEGMENT` e `KPI_REBUILD`.
-- Pipeline modular: detect -> track -> line count -> staff exclusion (stub).
-- Saida JSON por segmento, JSONL e merge JSON para dashboard.
+- Pipeline modular: detect -> track -> line count -> extract_faces -> staff exclusion (stub).
+- Saida JSON por segmento, JSONL e merge JSON para dashboard (inclui face_captures).
 - FastAPI basica (health, stores, segments, kpis).
 - Script de split via ffmpeg e comando `split-process`.
 
@@ -90,6 +90,7 @@ Parametros de camera mais importantes:
 - `processing.yolo_model`, `conf`, `iou`, `person_class_id`
 - `processing.crop_roi` (true para cortar a ROI antes da detecao)
 - `tracking.track_thresh`, `tracking.match_thresh`, `tracking.track_buffer`
+- `face_capture` (captura de rosto, thresholds e debounce)
 
 Se IN/OUT estiver invertido, troque `line.start`/`line.end` ou altere `direction`.
 
@@ -101,6 +102,7 @@ Use `.env.example` como base. Principais variaveis:
 | --- | --- | --- |
 | `DATABASE_URL` | `sqlite:///./var/people_analytics.db` | Banco local para dev |
 | `VIDEO_ROOT` | `./var/people_analytics/videos` | Raiz dos videos |
+| `FACES_ROOT` | `./var/people_analytics/faces` | Saida das capturas de rosto |
 | `CONFIG_DIR` | `./config` | Pasta de configs |
 | `TIMEZONE` | `America/Sao_Paulo` | Timezone base |
 | `JOB_POLL_INTERVAL` | `5` | Intervalo do worker (s) |
@@ -128,7 +130,8 @@ Use `.env.example` como base. Principais variaveis:
 1) Detect (YOLO) -> detecta pessoas
 2) Track (ByteTrack) -> IDs temporarios
 3) Line count -> gera eventos IN/OUT
-4) Staff exclusion -> hook para excluir funcionarios (stub)
+4) Extract faces -> captura rosto + salva em disco
+5) Staff exclusion -> hook para excluir funcionarios (stub)
 
 Observacao: o `crop_roi` corta a ROI antes da deteccao e acelera muito em CPU.
 

@@ -9,6 +9,7 @@ from people_analytics.vision.video_reader import VideoReader
 from people_analytics.vision.stages.detect_people import DetectPeopleStage
 from people_analytics.vision.stages.track_people import TrackPeopleStage
 from people_analytics.vision.stages.count_line import CountLineStage
+from people_analytics.vision.stages.extract_faces import ExtractFacesStage
 from people_analytics.vision.stages.staff_exclusion import StaffExclusionStage
 
 
@@ -16,6 +17,7 @@ from people_analytics.vision.stages.staff_exclusion import StaffExclusionStage
 class PipelineResult:
     events: list[dict] = field(default_factory=list)
     presence_samples: list[dict] = field(default_factory=list)
+    face_captures: list[dict] = field(default_factory=list)
     frames_read: int = 0
     duration_s: float | None = None
     errors: list[str] = field(default_factory=list)
@@ -53,6 +55,7 @@ class PipelineResult:
             "counts": self.summarize_counts(),
             "events": self.events,
             "presence_samples": self.presence_samples,
+            "face_captures": self.face_captures,
             "meta": {
                 "frames_read": self.frames_read,
                 "duration_s": self.duration_s,
@@ -71,9 +74,16 @@ class Pipeline:
         path: Path,
         base_ts: datetime | None = None,
         max_seconds: float | None = None,
+        segment_info: VideoPathInfo | None = None,
     ) -> PipelineResult:
         result = PipelineResult()
-        context = {"result": result, "now": datetime.now(timezone.utc), "base_ts": base_ts}
+        context = {
+            "result": result,
+            "now": datetime.now(timezone.utc),
+            "base_ts": base_ts,
+            "segment_info": segment_info,
+            "video_path": path,
+        }
         last_ts = None
 
         for stage in self.stages:
@@ -101,7 +111,7 @@ class Pipeline:
         return result
 
 
-def build_pipeline(camera_cfg: dict) -> Pipeline:
+def build_pipeline(camera_cfg: dict, faces_root: str | None = None) -> Pipeline:
     target_fps = None
     if camera_cfg.get("processing"):
         target_fps = camera_cfg["processing"].get("target_fps")
@@ -110,6 +120,7 @@ def build_pipeline(camera_cfg: dict) -> Pipeline:
         DetectPeopleStage(camera_cfg),
         TrackPeopleStage(camera_cfg),
         CountLineStage(camera_cfg),
+        ExtractFacesStage(camera_cfg, faces_root=faces_root),
         StaffExclusionStage(camera_cfg),
     ]
     return Pipeline(stages=stages, target_fps=target_fps)

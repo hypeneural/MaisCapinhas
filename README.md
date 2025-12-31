@@ -83,7 +83,7 @@ uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000
 
 ```
 python -m apps.cli ingest
-python -m apps.cli process --path <video_file>
+python -m apps.cli process --path <video_file> --max-seconds 120
 python -m apps.cli kpi-rebuild --date 2025-12-31 --store-id 1 --camera-id 1
 ```
 

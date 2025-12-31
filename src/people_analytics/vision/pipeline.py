@@ -66,7 +66,12 @@ class Pipeline:
         self.stages = stages
         self.reader = VideoReader(target_fps=target_fps)
 
-    def run(self, path: Path, base_ts: datetime | None = None) -> PipelineResult:
+    def run(
+        self,
+        path: Path,
+        base_ts: datetime | None = None,
+        max_seconds: float | None = None,
+    ) -> PipelineResult:
         result = PipelineResult()
         context = {"result": result, "now": datetime.now(timezone.utc), "base_ts": base_ts}
         last_ts = None
@@ -76,6 +81,8 @@ class Pipeline:
 
         try:
             for frame, ts in self.reader.iter_frames(path):
+                if max_seconds is not None and ts > max_seconds:
+                    break
                 context["frame"] = frame
                 context["ts"] = ts
                 last_ts = ts

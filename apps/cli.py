@@ -64,6 +64,7 @@ def process(
     segment_id: Optional[int] = None,
     path: Optional[str] = None,
     print_json: bool = True,
+    max_seconds: Optional[float] = None,
 ) -> None:
     configure_logging()
     settings = get_settings()
@@ -77,7 +78,7 @@ def process(
         camera_cfg = load_camera_config(settings.config_dir, info.store_code, info.camera_code)
         pipeline = build_pipeline(camera_cfg)
         base_ts = combine_date_time(info.date, info.start_time, settings.timezone)
-        result = pipeline.run(video_path, base_ts=base_ts)
+        result = pipeline.run(video_path, base_ts=base_ts, max_seconds=max_seconds)
         output = result.to_output(info, settings.timezone)
     else:
         with get_session() as session:
@@ -89,7 +90,7 @@ def process(
             camera_cfg = load_camera_config(settings.config_dir, store.code, camera.camera_code)
             pipeline = build_pipeline(camera_cfg)
             video_path = Path(settings.video_root) / segment.path
-            result = pipeline.run(video_path, base_ts=segment.start_time)
+            result = pipeline.run(video_path, base_ts=segment.start_time, max_seconds=max_seconds)
             events_crud.replace_events_for_segment(session, segment.id, store.id, camera.id, result)
             output = result.to_output(
                 segment.to_path_info(store.code, camera.camera_code, settings.timezone),

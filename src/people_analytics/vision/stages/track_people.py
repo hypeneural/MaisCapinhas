@@ -29,10 +29,22 @@ class TrackPeopleStage:
         try:
             self.tracker = sv.ByteTrack(
                 frame_rate=int(frame_rate),
-                track_thresh=float(tracking_cfg.get("track_thresh", 0.35)),
-                match_thresh=float(tracking_cfg.get("match_thresh", 0.8)),
-                track_buffer=int(tracking_cfg.get("track_buffer", 30)),
+                track_activation_threshold=float(tracking_cfg.get("track_thresh", 0.35)),
+                minimum_matching_threshold=float(tracking_cfg.get("match_thresh", 0.8)),
+                lost_track_buffer=int(tracking_cfg.get("track_buffer", 30)),
+                minimum_consecutive_frames=int(tracking_cfg.get("min_consecutive_frames", 1)),
             )
+        except TypeError:
+            try:
+                self.tracker = sv.ByteTrack(
+                    frame_rate=int(frame_rate),
+                    track_thresh=float(tracking_cfg.get("track_thresh", 0.35)),
+                    match_thresh=float(tracking_cfg.get("match_thresh", 0.8)),
+                    track_buffer=int(tracking_cfg.get("track_buffer", 30)),
+                )
+            except Exception as exc:
+                self.disabled_reason = f"tracker-init-failed:{exc}"
+                context["result"].errors.append("tracker-init-failed")
         except Exception as exc:
             self.disabled_reason = f"tracker-init-failed:{exc}"
             context["result"].errors.append("tracker-init-failed")

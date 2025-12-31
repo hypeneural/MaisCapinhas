@@ -48,7 +48,14 @@ def parse_video_path(path: Path, video_root: Optional[Path] = None) -> VideoPath
     end_time = time.fromisoformat(end_str)
 
     if video_root:
-        relative_path = str(Path(path).relative_to(video_root))
+        root_path = Path(video_root)
+        try:
+            relative_path = str(Path(path).relative_to(root_path))
+        except ValueError:
+            try:
+                relative_path = str(Path(path).resolve().relative_to(root_path.resolve()))
+            except ValueError:
+                relative_path = str(path)
     else:
         relative_path = str(path)
 

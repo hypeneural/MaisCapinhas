@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 
 from people_analytics.db.models.job import Job
 
@@ -21,11 +21,43 @@ def enqueue_job(session, job_type: str, payload: dict, run_after: datetime | Non
     return job
 
 
-def claim_job(session, worker_id: str) -> Job | None:
+def _requeue_stale_jobs(session, now: datetime, lock_timeout_s: int) -> None:
+    if lock_timeout_s <= 0:
+        return
+    stale_before = now - timedelta(seconds=lock_timeout_s)
+    session.execute(
+        update(Job)
+        .where(
+            Job.status == "processing",
+            Job.locked_at.is_not(None),
+            Job.locked_at < stale_before,
+            Job.attempts < Job.max_attempts,
+        )
+        .values(status="queued", locked_at=None, locked_by=None, last_error="stale-lock-requeued")
+    )
+    session.execute(
+        update(Job)
+        .where(
+            Job.status == "processing",
+            Job.locked_at.is_not(None),
+            Job.locked_at < stale_before,
+            Job.attempts >= Job.max_attempts,
+        )
+        .values(status="failed", last_error="max-attempts-exceeded")
+    )
+
+
+def claim_job(session, worker_id: str, lock_timeout_s: int | None = None) -> Job | None:
     now = datetime.now(timezone.utc)
+    if lock_timeout_s is not None:
+        _requeue_stale_jobs(session, now, lock_timeout_s)
     stmt = (
         select(Job)
-        .where(Job.status == "queued", or_(Job.run_after.is_(None), Job.run_after <= now))
+        .where(
+            Job.status == "queued",
+            Job.attempts < Job.max_attempts,
+            or_(Job.run_after.is_(None), Job.run_after <= now),
+        )
         .order_by(Job.run_after, Job.id)
         .limit(1)
         .with_for_update(skip_locked=True)

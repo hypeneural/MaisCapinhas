@@ -19,7 +19,7 @@ def run_worker() -> None:
 
     while True:
         with get_session() as session:
-            job = jobs_crud.claim_job(session, settings.worker_id)
+            job = jobs_crud.claim_job(session, settings.worker_id, settings.job_lock_timeout)
             if not job:
                 time.sleep(poll)
                 continue

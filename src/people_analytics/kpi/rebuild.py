@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, time
 
 from sqlalchemy import select
 
-from people_analytics.core.timeutils import parse_date, to_local
+from people_analytics.core.timeutils import parse_date, to_local, to_utc
 from people_analytics.db.crud import kpis as kpis_crud
 from people_analytics.db.models.event_flow import PeopleFlowEvent
 from people_analytics.kpi.aggregators.hourly import aggregate_hourly
@@ -16,8 +16,10 @@ def rebuild_for_date(session, store_id: int, camera_id: int | None, day: str, sh
         raise ValueError("store_id required")
 
     day_date = parse_date(day)
-    start = datetime.combine(day_date, time.min)
-    end = start + timedelta(days=1)
+    start_local = datetime.combine(day_date, time.min)
+    end_local = start_local + timedelta(days=1)
+    start = to_utc(start_local, tz_name)
+    end = to_utc(end_local, tz_name)
     stmt = select(PeopleFlowEvent).where(
         PeopleFlowEvent.store_id == store_id,
         PeopleFlowEvent.ts >= start,

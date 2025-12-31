@@ -43,6 +43,17 @@ tests/                   unit tests
 3) The worker processes segments, writes `people_flow_events`, then queues `KPI_REBUILD`.
 4) `kpi_rebuild` aggregates hourly and shift KPIs.
 
+## Vision config (YOLO + ByteTrack)
+
+Key settings in each camera config:
+
+- `processing.yolo_model`, `processing.conf`, `processing.iou`, `processing.person_class_id`
+- `tracking.type` = `bytetrack`, `tracking.track_thresh`, `tracking.match_thresh`, `tracking.track_buffer`
+- `line.start` / `line.end`, `line.min_interval_s`, and `direction`
+- `resize` and `roi` are applied before detection; set `line` and `roi` in the resized coordinate space.
+
+Direction uses the line orientation. If IN/OUT are inverted, swap `line.start` and `line.end` or flip `direction`.
+
 ## Quickstart (local)
 
 1) Create and activate a venv
@@ -59,6 +70,8 @@ Example:
 python -m venv .venv
 .\.venv\Scripts\activate
 python -m pip install -e .
+# For detection + tracking:
+python -m pip install -e .[vision]
 copy .env.example .env
 python -m apps.cli init-db
 python -m apps.cli ingest

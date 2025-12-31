@@ -14,6 +14,7 @@ from people_analytics.core.config import (
 )
 from people_analytics.core.logging import configure_logging
 from people_analytics.core.settings import get_settings
+from people_analytics.core.timeutils import combine_date_time
 from people_analytics.db.crud import events as events_crud
 from people_analytics.db.crud import jobs as jobs_crud
 from people_analytics.db.crud import segments as segments_crud
@@ -75,7 +76,8 @@ def process(
         info = parse_video_path(video_path, Path(settings.video_root))
         camera_cfg = load_camera_config(settings.config_dir, info.store_code, info.camera_code)
         pipeline = build_pipeline(camera_cfg)
-        result = pipeline.run(video_path)
+        base_ts = combine_date_time(info.date, info.start_time, settings.timezone)
+        result = pipeline.run(video_path, base_ts=base_ts)
         output = result.to_output(info, settings.timezone)
     else:
         with get_session() as session:
@@ -87,7 +89,7 @@ def process(
             camera_cfg = load_camera_config(settings.config_dir, store.code, camera.camera_code)
             pipeline = build_pipeline(camera_cfg)
             video_path = Path(settings.video_root) / segment.path
-            result = pipeline.run(video_path)
+            result = pipeline.run(video_path, base_ts=segment.start_time)
             events_crud.replace_events_for_segment(session, segment.id, store.id, camera.id, result)
             output = result.to_output(
                 segment.to_path_info(store.code, camera.camera_code, settings.timezone),

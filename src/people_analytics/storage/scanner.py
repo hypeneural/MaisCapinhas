@@ -7,7 +7,7 @@ from people_analytics.storage.paths import VideoPathInfo, parse_video_path
 
 
 def scan_videos(root: Path, extensions: Sequence[str] | None = None) -> Iterable[VideoPathInfo]:
-    exts = {e.lower() for e in (extensions or [".mp4", ".mkv", ".avi"])}
+    exts = {e.lower() for e in (extensions or [".mp4", ".mkv", ".avi", ".dav"])}
     for path in root.rglob("*"):
         if not path.is_file():
             continue

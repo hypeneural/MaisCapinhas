@@ -6,6 +6,7 @@ name: "Entrada"
 line:
   start: [80, 250]
   end: [560, 250]
+  min_interval_s: 1.0
 direction: outside_to_inside
 
 roi: { x: 0, y: 120, w: 640, h: 360 }
@@ -16,6 +17,13 @@ processing:
   yolo_model: yolov8n.pt
   conf: 0.35
   iou: 0.45
+  person_class_id: 0
+
+tracking:
+  type: bytetrack
+  track_thresh: 0.35
+  match_thresh: 0.8
+  track_buffer: 30
 
 staff_exclusion:
   enabled: true

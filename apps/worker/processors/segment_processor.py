@@ -30,7 +30,7 @@ def process_segment_job(session, job: Job) -> None:
     pipeline = build_pipeline(camera_cfg)
 
     video_path = Path(settings.video_root) / segment.path
-    result = pipeline.run(video_path)
+    result = pipeline.run(video_path, base_ts=segment.start_time)
 
     events_crud.replace_events_for_segment(session, segment.id, store.id, camera.id, result)
 

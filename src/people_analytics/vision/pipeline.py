@@ -66,9 +66,9 @@ class Pipeline:
         self.stages = stages
         self.reader = VideoReader(target_fps=target_fps)
 
-    def run(self, path: Path) -> PipelineResult:
+    def run(self, path: Path, base_ts: datetime | None = None) -> PipelineResult:
         result = PipelineResult()
-        context = {"result": result, "now": datetime.now(timezone.utc)}
+        context = {"result": result, "now": datetime.now(timezone.utc), "base_ts": base_ts}
         last_ts = None
 
         for stage in self.stages:

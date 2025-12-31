@@ -83,6 +83,7 @@ Parâmetros importantes por câmera:
 - `line.start` / `line.end`, `line.min_interval_s`, `direction`
 - `roi` e `resize` (coordenadas no frame redimensionado)
 - `processing.yolo_model`, `conf`, `iou`, `person_class_id`
+- `processing.crop_roi` (true para cortar a ROI antes da detecção)
 - `tracking.track_thresh`, `tracking.match_thresh`, `tracking.track_buffer`
 
 Se IN/OUT estiver invertido, troque `line.start`/`line.end` ou altere `direction`.
@@ -189,8 +190,9 @@ python -m apps.cli split-process ^
   --date 2025-12-31 ^
   --base-time 10:00:00 ^
   --segment-minutes 5 ^
-  --fps 8 ^
-  --scale 640:-2 ^
+  --fps 6 ^
+  --scale 480:-2 ^
+  --workers 2 ^
   --output-json var/outputs/001_entrance_2025-12-31.jsonl
 ```
 
@@ -201,8 +203,9 @@ O arquivo `.jsonl` salva um JSON por segmento (mais leve e fácil de manipular).
 1) **Segmentar** (5–10 min) e **paralelizar** (mais de um worker).
 2) **Reducao de FPS** (4–8) e **resolucao** (ex.: 640px largura).
 3) **ROI menor** e **linha bem posicionada** para evitar contagens falsas.
-4) **YOLOv8n** (modelo menor) para CPU; GPU acelera bastante se disponivel.
-5) Evitar reprocessar: use `ingest` + jobs para cache no banco.
+4) **crop_roi** habilitado quando a ROI for pequena (reduz custo de inferencia).
+5) **YOLOv8n** (modelo menor) para CPU; GPU acelera bastante se disponivel.
+6) Evitar reprocessar: use `ingest` + jobs para cache no banco.
 
 ## Observações importantes
 

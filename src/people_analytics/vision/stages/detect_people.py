@@ -21,6 +21,7 @@ class DetectPeopleStage:
         self.conf = 0.35
         self.iou = 0.45
         self.person_class_id = 0
+        self.crop_roi = False
 
     def setup(self, context: dict) -> None:
         context["detections"] = []
@@ -35,6 +36,7 @@ class DetectPeopleStage:
         self.conf = float(processing.get("conf", 0.35))
         self.iou = float(processing.get("iou", 0.45))
         self.person_class_id = int(processing.get("person_class_id", 0))
+        self.crop_roi = bool(processing.get("crop_roi", False))
 
         if self.model is None:
             try:
@@ -55,12 +57,28 @@ class DetectPeopleStage:
         h = int(resize_cfg.get("h", frame.shape[0]))
         return cv2.resize(frame, (w, h))
 
+    def _crop_to_roi(self, frame, roi: dict):
+        x0 = int(roi.get("x", 0))
+        y0 = int(roi.get("y", 0))
+        w = int(roi.get("w", frame.shape[1] - x0))
+        h = int(roi.get("h", frame.shape[0] - y0))
+        x1 = max(0, x0)
+        y1 = max(0, y0)
+        x2 = min(frame.shape[1], x1 + max(1, w))
+        y2 = min(frame.shape[0], y1 + max(1, h))
+        return frame[y1:y2, x1:x2], (x1, y1)
+
     def on_frame(self, context: dict) -> None:
         if self.disabled_reason or self.model is None:
             context["detections"] = []
             return
 
         frame = self._resize_frame(context["frame"])
+        roi = self.camera_cfg.get("roi")
+        offset_x = 0
+        offset_y = 0
+        if self.crop_roi and roi:
+            frame, (offset_x, offset_y) = self._crop_to_roi(frame, roi)
         results = self.model.predict(
             frame,
             conf=self.conf,
@@ -81,13 +99,16 @@ class DetectPeopleStage:
         conf = boxes.conf.cpu().numpy()
         cls = boxes.cls.cpu().numpy().astype(int)
 
-        roi = self.camera_cfg.get("roi")
         detections = []
         for i in range(len(xyxy)):
             x1, y1, x2, y2 = xyxy[i].tolist()
+            x1 += offset_x
+            x2 += offset_x
+            y1 += offset_y
+            y2 += offset_y
             cx = (x1 + x2) / 2.0
             cy = (y1 + y2) / 2.0
-            if roi:
+            if roi and not self.crop_roi:
                 x0 = roi.get("x", 0)
                 y0 = roi.get("y", 0)
                 w = roi.get("w", 0)

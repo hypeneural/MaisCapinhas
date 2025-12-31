@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta, time, timezone
+from itertools import repeat
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +29,25 @@ from people_analytics.storage.paths import parse_video_path
 from people_analytics.vision.pipeline import build_pipeline
 
 app = typer.Typer(help="People analytics CLI")
+
+
+_WORKER_CONTEXT: dict = {}
+
+
+def _init_worker(config_dir: str, store_code: str, camera_code: str, tz_name: str) -> None:
+    camera_cfg = load_camera_config(config_dir, store_code, camera_code)
+    _WORKER_CONTEXT["pipeline"] = build_pipeline(camera_cfg)
+    _WORKER_CONTEXT["tz_name"] = tz_name
+    _WORKER_CONTEXT["video_root"] = None
+
+
+def _process_segment_worker(segment_path: str, video_root: str, max_seconds: float | None) -> dict:
+    pipeline = _WORKER_CONTEXT["pipeline"]
+    tz_name = _WORKER_CONTEXT["tz_name"]
+    info = parse_video_path(Path(segment_path), Path(video_root))
+    base_ts = combine_date_time(info.date, info.start_time, tz_name)
+    result = pipeline.run(Path(segment_path), base_ts=base_ts, max_seconds=max_seconds)
+    return result.to_output(info, tz_name)
 
 
 def _split_with_ffmpeg(
@@ -172,18 +193,19 @@ def split_process(
     date: str = typer.Option(..., "--date"),
     base_time: str = "00:00:00",
     segment_minutes: int = 5,
-    fps: int = 8,
-    scale: str = "640:-2",
+    fps: int = 6,
+    scale: str = "480:-2",
     crf: int = 28,
     preset: str = "veryfast",
     output_json: Optional[str] = None,
     max_seconds: Optional[float] = None,
+    workers: int = 1,
 ) -> None:
     configure_logging()
     settings = get_settings()
-    output_dir = (
-        Path(settings.video_root) / f"store={store_code}" / f"camera={camera_code}" / f"date={date}"
-    )
+    video_root = str(Path(settings.video_root).resolve())
+    config_dir = str(Path(settings.config_dir).resolve())
+    output_dir = Path(video_root) / f"store={store_code}" / f"camera={camera_code}" / f"date={date}"
     segment_seconds = segment_minutes * 60
 
     segments = _split_with_ffmpeg(
@@ -200,22 +222,42 @@ def split_process(
 
     segments = _rename_segments(segments, base_time, segment_seconds)
 
-    camera_cfg = load_camera_config(settings.config_dir, store_code, camera_code)
-    pipeline = build_pipeline(camera_cfg)
     output_path = Path(output_json or f"var/outputs/{store_code}_{camera_code}_{date}.jsonl")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     summary = {"in": 0, "out": 0, "staff_in": 0, "staff_out": 0}
     with output_path.open("w", encoding="utf-8") as f:
-        for segment_path in segments:
-            info = parse_video_path(segment_path, Path(settings.video_root))
-            base_ts = combine_date_time(info.date, info.start_time, settings.timezone)
-            result = pipeline.run(segment_path, base_ts=base_ts, max_seconds=max_seconds)
-            output = result.to_output(info, settings.timezone)
-            counts = output.get("counts", {})
-            for key in summary:
-                summary[key] += int(counts.get(key, 0))
-            f.write(json.dumps(output, default=str) + "\n")
+        if workers <= 1:
+            camera_cfg = load_camera_config(config_dir, store_code, camera_code)
+            pipeline = build_pipeline(camera_cfg)
+            def _iter_outputs():
+                for segment_path in segments:
+                    info = parse_video_path(segment_path, Path(video_root))
+                    base_ts = combine_date_time(info.date, info.start_time, settings.timezone)
+                    result = pipeline.run(segment_path, base_ts=base_ts, max_seconds=max_seconds)
+                    yield result.to_output(info, settings.timezone)
+
+            for output in _iter_outputs():
+                counts = output.get("counts", {})
+                for key in summary:
+                    summary[key] += int(counts.get(key, 0))
+                f.write(json.dumps(output, default=str) + "\n")
+        else:
+            with ProcessPoolExecutor(
+                max_workers=workers,
+                initializer=_init_worker,
+                initargs=(config_dir, store_code, camera_code, settings.timezone),
+            ) as executor:
+                for output in executor.map(
+                    _process_segment_worker,
+                    [str(p) for p in segments],
+                    repeat(video_root),
+                    repeat(max_seconds),
+                ):
+                    counts = output.get("counts", {})
+                    for key in summary:
+                        summary[key] += int(counts.get(key, 0))
+                    f.write(json.dumps(output, default=str) + "\n")
 
     rprint(f"[green]Segments processed: {len(segments)}[/green]")
     rprint(f"[green]JSONL saved to: {output_path}[/green]")

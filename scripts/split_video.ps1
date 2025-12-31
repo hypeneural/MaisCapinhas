@@ -6,8 +6,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$BaseTime,
     [int]$SegmentMinutes = 5,
-    [int]$Fps = 8,
-    [string]$Scale = "640:-2"
+    [int]$Fps = 6,
+    [string]$Scale = "480:-2"
 )
 
 Set-StrictMode -Version Latest

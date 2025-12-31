@@ -31,7 +31,7 @@ class FaceCaptureConfig:
     haar_min_neighbors: int = 3
     haar_scale_factor: float = 1.1
     dnn_prototxt: str = "models/deploy.prototxt"
-    dnn_model: str = "models/res10_300x300_ssd_iter_140000_fp16.caffemodel"
+    dnn_model: str = "models/res10_300x300_ssd_iter_140000.caffemodel"
     dnn_conf: float = 0.5
     output_root: str | None = None
 
@@ -114,7 +114,7 @@ class ExtractFacesStage:
                 context["result"].errors.append("face-detector-fallback-haar")
                 self.disabled_reason = None
 
-        if self.model is None and not self.haar_detectors:
+        if self.model is None and self.dnn_net is None and not self.haar_detectors:
             if not self.disabled_reason:
                 self.disabled_reason = "face-detector-unavailable"
                 context["result"].errors.append(self.disabled_reason)
@@ -222,7 +222,13 @@ class ExtractFacesStage:
         return f"{base}-{ms:03d}"
 
     def on_frame(self, context: dict) -> None:
-        if self.disabled_reason or not self.cfg.enabled or self.model is None:
+        if self.disabled_reason or not self.cfg.enabled:
+            return
+        if self.detector == "yolo" and self.model is None:
+            return
+        if self.detector == "dnn" and self.dnn_net is None:
+            return
+        if self.detector == "haar" and not self.haar_detectors:
             return
 
         tracks = context.get("tracks", [])

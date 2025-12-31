@@ -7,6 +7,7 @@ from people_analytics.db.models.event_flow import PeopleFlowEvent
 from people_analytics.db.models.metrics_presence import PresenceSample
 from people_analytics.db.models.kpi_hourly import KpiHourly
 from people_analytics.db.models.kpi_shift import KpiShift
+from people_analytics.db.models.face_capture import FaceCapture
 
 __all__ = [
     "Store",
@@ -18,4 +19,5 @@ __all__ = [
     "PresenceSample",
     "KpiHourly",
     "KpiShift",
+    "FaceCapture",
 ]

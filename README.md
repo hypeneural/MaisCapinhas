@@ -114,6 +114,7 @@ Use `.env.example` como base. Principais variaveis:
 - `video_segments` (1 arquivo = 1 segmento)
 - `jobs` (fila no DB, sem Redis)
 - `people_flow_events` (IN/OUT, staff flag)
+- `face_captures` (rostos salvos em disco)
 - `metrics_presence` (amostragem de ocupacao, ainda vazio)
 - `kpi_hourly`, `kpi_shift`
 - `staff` (stub para exclusao)

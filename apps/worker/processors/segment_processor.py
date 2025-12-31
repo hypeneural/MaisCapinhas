@@ -6,6 +6,7 @@ from people_analytics.core.config import load_camera_config
 from people_analytics.core.settings import get_settings
 from people_analytics.core.timeutils import to_local
 from people_analytics.db.crud import events as events_crud
+from people_analytics.db.crud import faces as faces_crud
 from people_analytics.db.crud import jobs as jobs_crud
 from people_analytics.db.crud import segments as segments_crud
 from people_analytics.db.models.job import Job
@@ -34,6 +35,7 @@ def process_segment_job(session, job: Job) -> None:
     result = pipeline.run(video_path, base_ts=segment.start_time, segment_info=info)
 
     events_crud.replace_events_for_segment(session, segment.id, store.id, camera.id, result)
+    faces_crud.replace_faces_for_segment(session, segment.id, store.id, camera.id, result)
 
     local_date = to_local(segment.start_time, settings.timezone).date()
     jobs_crud.enqueue_job(

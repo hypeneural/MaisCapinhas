@@ -20,6 +20,7 @@ from people_analytics.core.logging import configure_logging
 from people_analytics.core.settings import get_settings
 from people_analytics.core.timeutils import combine_date_time
 from people_analytics.db.crud import events as events_crud
+from people_analytics.db.crud import faces as faces_crud
 from people_analytics.db.crud import jobs as jobs_crud
 from people_analytics.db.crud import segments as segments_crud
 from people_analytics.db.session import get_session, init_db
@@ -193,6 +194,7 @@ def process(
                 segment_info=info,
             )
             events_crud.replace_events_for_segment(session, segment.id, store.id, camera.id, result)
+            faces_crud.replace_faces_for_segment(session, segment.id, store.id, camera.id, result)
             output = result.to_output(
                 info,
                 settings.timezone,

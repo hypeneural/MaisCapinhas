@@ -39,6 +39,8 @@ class ExtractFacesStage:
         self.disabled_reason: str | None = None
         self.cfg = FaceCaptureConfig()
         self.last_saved_by_track: dict[str, float] = {}
+        self.detector = "yolo"
+        self.haar_detectors: list = []
 
     def setup(self, context: dict) -> None:
         context["result"].face_captures = []
@@ -79,12 +81,25 @@ class ExtractFacesStage:
             context["result"].errors.append(self.disabled_reason)
             return
 
-        if self.model is None:
+        if self.model is None and YOLO is not None:
             try:
                 self.model = YOLO(self.cfg.model)
+                self.detector = "yolo"
             except Exception as exc:
                 self.disabled_reason = f"face-model-load-failed:{exc}"
                 context["result"].errors.append("face-model-load-failed")
+
+        if self.model is None and cv2 is not None:
+            self.haar_detectors = self._load_haar_detectors()
+            if self.haar_detectors:
+                self.detector = "haar"
+                context["result"].errors.append("face-detector-fallback-haar")
+                self.disabled_reason = None
+
+        if self.model is None and not self.haar_detectors:
+            if not self.disabled_reason:
+                self.disabled_reason = "face-detector-unavailable"
+                context["result"].errors.append(self.disabled_reason)
 
     def _resize_frame(self, frame):
         resize_cfg = self.camera_cfg.get("resize")
@@ -93,6 +108,21 @@ class ExtractFacesStage:
         w = int(resize_cfg.get("w", frame.shape[1]))
         h = int(resize_cfg.get("h", frame.shape[0]))
         return cv2.resize(frame, (w, h))
+
+    def _load_haar_detectors(self):
+        if cv2 is None or not hasattr(cv2, "data"):
+            return []
+        candidates = [
+            "haarcascade_frontalface_default.xml",
+            "haarcascade_profileface.xml",
+        ]
+        detectors = []
+        for name in candidates:
+            path = str(Path(cv2.data.haarcascades) / name)
+            cascade = cv2.CascadeClassifier(path)
+            if not cascade.empty():
+                detectors.append(cascade)
+        return detectors
 
     def _crop_to_roi(self, frame, roi: dict):
         x0 = int(roi.get("x", 0))
@@ -203,21 +233,52 @@ class ExtractFacesStage:
         if self.cfg.crop_roi and roi:
             infer_frame, (offset_x, offset_y) = self._crop_to_roi(frame_resized, roi)
 
-        results = self.model.predict(
-            infer_frame,
-            conf=self.cfg.conf,
-            classes=[self.cfg.class_id],
-            verbose=False,
-        )
-        if not results:
+        detections = []
+        if self.detector == "yolo" and self.model is not None:
+            results = self.model.predict(
+                infer_frame,
+                conf=self.cfg.conf,
+                classes=[self.cfg.class_id],
+                verbose=False,
+            )
+            if not results:
+                return
+
+            boxes = results[0].boxes
+            if boxes is None or len(boxes) == 0:
+                return
+
+            xyxy = boxes.xyxy.cpu().numpy()
+            conf = boxes.conf.cpu().numpy()
+            for i in range(len(xyxy)):
+                detections.append(
+                    {
+                        "bbox": xyxy[i].tolist(),
+                        "score": float(conf[i]),
+                    }
+                )
+        elif self.detector == "haar" and self.haar_detectors:
+            gray = cv2.cvtColor(infer_frame, cv2.COLOR_BGR2GRAY)
+            min_size = (self.cfg.min_width, self.cfg.min_width)
+            for detector in self.haar_detectors:
+                faces = detector.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=4,
+                    minSize=min_size,
+                )
+                for (x, y, w, h) in faces:
+                    detections.append(
+                        {
+                            "bbox": [float(x), float(y), float(x + w), float(y + h)],
+                            "score": 1.0,
+                        }
+                    )
+        else:
             return
 
-        boxes = results[0].boxes
-        if boxes is None or len(boxes) == 0:
+        if not detections:
             return
-
-        xyxy = boxes.xyxy.cpu().numpy()
-        conf = boxes.conf.cpu().numpy()
 
         segment_info = context.get("segment_info")
         if segment_info:
@@ -235,12 +296,13 @@ class ExtractFacesStage:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         saved_this_frame: set[str] = set()
-        face_limit = min(len(xyxy), self.cfg.max_faces_per_frame)
+        detections.sort(key=lambda d: (d["bbox"][2] - d["bbox"][0]) * (d["bbox"][3] - d["bbox"][1]), reverse=True)
+        face_limit = min(len(detections), self.cfg.max_faces_per_frame)
         for i in range(face_limit):
-            score = float(conf[i])
+            score = float(detections[i]["score"])
             if score < self.cfg.conf:
                 continue
-            x1, y1, x2, y2 = xyxy[i].tolist()
+            x1, y1, x2, y2 = detections[i]["bbox"]
             x1 += offset_x
             x2 += offset_x
             y1 += offset_y

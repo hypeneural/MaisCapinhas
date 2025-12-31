@@ -1,0 +1,12 @@
+timezone: America/Sao_Paulo
+video_root: /var/people_analytics/videos
+
+stores:
+  - id: 1
+    code: "001"
+    name: "Loja Centro"
+    city: "Tijucas"
+  - id: 2
+    code: "002"
+    name: "Loja X"
+    city: "Floripa"

@@ -1,0 +1,12 @@
+[Unit]
+Description=People Analytics API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/people-analytics
+ExecStart=/opt/people-analytics/.venv/bin/uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

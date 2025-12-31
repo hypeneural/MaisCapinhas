@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "people-analytics"
+version = "0.1.0"
+description = "Multi-store people analytics pipeline with DB job queue"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "Proprietary" }
+
+dependencies = [
+  "pydantic>=2.7",
+  "pydantic-settings>=2.2",
+  "PyYAML>=6.0",
+  "SQLAlchemy>=2.0",
+  "alembic>=1.13",
+  "typer>=0.12",
+  "rich>=13.7",
+  "python-dotenv>=1.0",
+  "fastapi>=0.110",
+  "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+vision = [
+  "opencv-python>=4.9",
+  "ultralytics>=8.2",
+  "supervision>=0.20",
+]
+dev = [
+  "pytest>=7.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

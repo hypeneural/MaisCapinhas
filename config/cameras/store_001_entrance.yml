@@ -1,0 +1,22 @@
+store_id: 1
+camera_id: 1
+camera_code: "entrance"
+name: "Entrada"
+
+line:
+  start: [80, 250]
+  end: [560, 250]
+direction: outside_to_inside
+
+roi: { x: 0, y: 120, w: 640, h: 360 }
+resize: { w: 640, h: 360 }
+
+processing:
+  target_fps: 8
+  yolo_model: yolov8n.pt
+  conf: 0.35
+  iou: 0.45
+
+staff_exclusion:
+  enabled: true
+  threshold: 0.35

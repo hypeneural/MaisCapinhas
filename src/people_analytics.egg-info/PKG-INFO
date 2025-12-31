@@ -1,3 +1,27 @@
+Metadata-Version: 2.4
+Name: people-analytics
+Version: 0.1.0
+Summary: Multi-store people analytics pipeline with DB job queue
+License: Proprietary
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic>=2.7
+Requires-Dist: pydantic-settings>=2.2
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: SQLAlchemy>=2.0
+Requires-Dist: alembic>=1.13
+Requires-Dist: typer>=0.12
+Requires-Dist: rich>=13.7
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: fastapi>=0.110
+Requires-Dist: uvicorn>=0.27
+Provides-Extra: vision
+Requires-Dist: opencv-python>=4.9; extra == "vision"
+Requires-Dist: ultralytics>=8.2; extra == "vision"
+Requires-Dist: supervision>=0.20; extra == "vision"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"
+
 # People Analytics
 
 Modular offline pipeline to ingest security videos by store/camera/date, queue jobs in the database, and compute KPIs. The design favors a simple DB-backed job queue and a stage-based vision pipeline so new KPIs can be added without reworking the core flow.

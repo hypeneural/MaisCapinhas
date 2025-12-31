@@ -1,76 +1,134 @@
-# People Analytics
+# Mais Capinhas — People Analytics (KPIs via Vídeo)
 
-Modular offline pipeline to ingest security videos by store/camera/date, queue jobs in the database, and compute KPIs. The design favors a simple DB-backed job queue and a stage-based vision pipeline so new KPIs can be added without reworking the core flow.
+Projeto para gerar KPIs de fluxo a partir de vídeos brutos das lojas Mais Capinhas.  
+O pipeline é offline, multi-loja/multi-câmera, com fila de jobs no banco e saída em JSON/KPIs.
 
-## Video folder structure (required)
+## O que já está pronto
 
-Do not depend on filename. Depend on folder structure.
+- Estrutura multi-loja/multi-câmera baseada em pastas (não depende do nome do arquivo).
+- Ingest de vídeos com dedup e criação de `video_segments`.
+- Fila de jobs no banco (sem Redis) com `SELECT ... FOR UPDATE SKIP LOCKED`.
+- Worker para processar segmentos e disparar rebuild de KPIs.
+- Pipeline de visão modular com YOLO (detecção), ByteTrack (tracking) e contagem por linha.
+- JSON de saída por vídeo com eventos IN/OUT e métricas básicas.
+- KPIs por hora e por turno (hourly/shift) com rebuild.
+- API FastAPI (health, stores, segments, kpis).
+- Scripts de serviço (systemd) prontos para Linux.
+
+## O que falta fazer (roadmap)
+
+- Exclusão de funcionários (staff) por face embeddings ou por zona/turno.
+- Amostragem de presença (occupancy/proxy de movimento).
+- Atributos (sexo/idade) com flags LGPD.
+- Re-identificação e recorrência.
+- Segmentação automática de vídeos longos (quando DVR/NVR não segmenta).
+- Otimizações de performance (batch, GPU, amostragem adaptativa).
+- Painel/relatórios e alertas operacionais.
+
+## Tecnologias principais
+
+- Python 3.10+
+- Pydantic / Pydantic Settings
+- SQLAlchemy + Alembic
+- FastAPI + Uvicorn
+- Typer (CLI)
+- OpenCV (leitura de vídeo)
+- Ultralytics YOLO (detecção)
+- Supervision ByteTrack (tracking)
+
+## Estrutura do repositório
+
+```
+apps/
+  cli.py                 CLI (ingest, process, kpi-rebuild, staff-rebuild)
+  api/                   FastAPI (health, stores, segments, kpis)
+  worker/                worker que consome jobs do DB
+
+src/people_analytics/
+  core/                  settings, config, time utils
+  storage/               parser de path, scanner, fingerprint
+  db/                    models, crud, session
+  vision/                pipeline + stages (detect, track, count, staff)
+  kpi/                   aggregators e rebuild
+
+config/                  stores, cameras, shifts
+var/                     logs, cache, debug_frames, videos
+scripts/                 serviços systemd (Linux)
+tests/                   testes unitários
+```
+
+## Estrutura obrigatória dos vídeos
 
 ```
 /var/people_analytics/videos/
   store=001/
     camera=entrance/
       date=2025-12-31/
+        10-00-00__10-30-00.dav
         14-00-00__14-10-00.mp4
-        14-10-00__14-20-00.mp4
 ```
 
-## Project layout
+Extensões suportadas: `.mp4`, `.mkv`, `.avi`, `.dav`.
+
+## Configuração
+
+Arquivos principais:
+
+- `config/stores.yml` (lojas, timezone, video_root)
+- `config/shifts.yml` (turnos)
+- `config/cameras/store_001_entrance.yml` (linha, ROI, resize, detecção, tracking)
+
+Parâmetros importantes por câmera:
+
+- `line.start` / `line.end`, `line.min_interval_s`, `direction`
+- `roi` e `resize` (coordenadas no frame redimensionado)
+- `processing.yolo_model`, `conf`, `iou`, `person_class_id`
+- `tracking.track_thresh`, `tracking.match_thresh`, `tracking.track_buffer`
+
+Se IN/OUT estiver invertido, troque `line.start`/`line.end` ou altere `direction`.
+
+## Pipeline (fluxo completo)
+
+1) `ingest` escaneia os vídeos e cria `video_segments`.
+2) Cada segmento vira um job `PROCESS_SEGMENT`.
+3) Worker processa o vídeo: detecção → tracking → contagem por linha.
+4) Eventos são gravados em `people_flow_events`.
+5) Worker cria job `KPI_REBUILD` para o dia do segmento.
+6) KPIs são consolidados em `kpi_hourly` e `kpi_shift`.
+
+## Saída JSON (processamento por vídeo)
 
 ```
-apps/
-  cli.py                 CLI (ingest, process, kpi-rebuild, staff-rebuild)
-  api/                   FastAPI routes (health, stores, segments, kpis)
-  worker/                DB queue worker
-
-src/people_analytics/
-  core/                  settings, config, time utils
-  storage/               path parser, scanner, fingerprints
-  db/                    models, crud, session
-  vision/                pipeline + stages (detect, track, count, staff)
-  kpi/                   aggregators and rebuild
-
-config/                  stores, cameras, shifts
-var/                     logs, cache, debug_frames
-scripts/                 systemd service files
-tests/                   unit tests
+{
+  "segment": {
+    "store_code": "001",
+    "camera_code": "entrance",
+    "start_time": "2025-12-31T10:00:00-03:00",
+    "end_time": "2025-12-31T10:30:00-03:00"
+  },
+  "counts": {
+    "in": 3,
+    "out": 3,
+    "staff_in": 0,
+    "staff_out": 0
+  },
+  "events": [
+    {"ts": "...", "direction": "IN", "track_id": "7", "confidence": 0.87}
+  ],
+  "meta": {
+    "frames_read": 900,
+    "duration_s": 120.0,
+    "errors": []
+  }
+}
 ```
 
-## Flow
-
-1) `ingest` scans the video root and inserts `video_segments`.
-2) Each new segment becomes a `PROCESS_SEGMENT` job.
-3) The worker processes segments, writes `people_flow_events`, then queues `KPI_REBUILD`.
-4) `kpi_rebuild` aggregates hourly and shift KPIs.
-
-## Vision config (YOLO + ByteTrack)
-
-Key settings in each camera config:
-
-- `processing.yolo_model`, `processing.conf`, `processing.iou`, `processing.person_class_id`
-- `tracking.type` = `bytetrack`, `tracking.track_thresh`, `tracking.match_thresh`, `tracking.track_buffer`
-- `line.start` / `line.end`, `line.min_interval_s`, and `direction`
-- `resize` and `roi` are applied before detection; set `line` and `roi` in the resized coordinate space.
-
-Direction uses the line orientation. If IN/OUT are inverted, swap `line.start` and `line.end` or flip `direction`.
-
-## Quickstart (local)
-
-1) Create and activate a venv
-2) Install dependencies
-3) Copy `.env.example` to `.env` and adjust paths
-4) Create the local schema
-5) Ingest videos
-6) Run worker
-7) Start API
-
-Example:
+## Como rodar local (Windows)
 
 ```
 python -m venv .venv
 .\.venv\Scripts\activate
 python -m pip install -e .
-# For detection + tracking:
 python -m pip install -e .[vision]
 copy .env.example .env
 python -m apps.cli init-db
@@ -79,43 +137,31 @@ python -m apps.worker.worker
 uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Commands
+## Teste rápido com um vídeo
+
+1) Copie o arquivo para a estrutura esperada:
 
 ```
-python -m apps.cli ingest
+var/people_analytics/videos/store=001/camera=entrance/date=2025-12-31/10-00-00__10-30-00.dav
+```
+
+2) Rode o processamento com tempo limitado:
+
+```
 python -m apps.cli process --path <video_file> --max-seconds 120
-python -m apps.cli kpi-rebuild --date 2025-12-31 --store-id 1 --camera-id 1
 ```
 
-## Notes
+## Observações importantes
 
-- Postgres is recommended for `SELECT ... FOR UPDATE SKIP LOCKED` when running multiple workers.
-- SQLite is fine for single-worker dev and local schema creation.
-- The worker requeues stale jobs based on `JOB_LOCK_TIMEOUT`.
-- `python -m apps.cli process --path <file>` prints JSON output after reading a video.
+- Postgres é recomendado para múltiplos workers.
+- SQLite funciona para dev/local.
+- Em Windows, `tzdata` é obrigatório para timezone.
+- Staff exclusion por face precisa de câmera frontal; se não tiver, use fallback por zona/turno.
 
-## Output JSON example
+## Próximos passos sugeridos
 
-```
-{
-  "segment": {
-    "store_code": "001",
-    "camera_code": "entrance",
-    "start_time": "2025-12-31T14:00:00-03:00",
-    "end_time": "2025-12-31T14:10:00-03:00"
-  },
-  "counts": {
-    "in": 0,
-    "out": 0,
-    "staff_in": 0,
-    "staff_out": 0
-  },
-  "events": [],
-  "presence_samples": [],
-  "meta": {
-    "frames_read": 0,
-    "duration_s": null,
-    "errors": ["opencv-not-installed"]
-  }
-}
-```
+1) Ajustar linha/ROI por câmera até os IN/OUT ficarem corretos.
+2) Implementar exclusão de funcionários por zona/escala.
+3) Criar segmentador para vídeos longos (DVR/NVR).
+4) Ativar presença/ocupação e KPIs avançados.
+5) Conectar painel admin e exportações.
